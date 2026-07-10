@@ -2,7 +2,7 @@ name: Reporte de mercados (cada hora)
 
 on:
   schedule:
-    - cron: "7 * * * *"   # minuto 7 de cada hora (UTC)
+    - cron: '0 * * * *'   # cada hora en punto (UTC)
   workflow_dispatch:        # permite ejecutarlo a mano desde la pestaña Actions
 
 permissions:
