@@ -20,29 +20,24 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      TZ: America/Argentina/Buenos_Aires   # fecha/hora del reporte en horario argentino
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Instalar dependencias
         run: pip install -r requirements.txt
-
       - name: Generar reporte
         run: python generar_reporte.py
-
       - name: Preparar página
         run: |
           mkdir -p _site
           cp reporte_diario.html _site/index.html
-
       - uses: actions/configure-pages@v5
-
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
-
       - id: deployment
         uses: actions/deploy-pages@v4
