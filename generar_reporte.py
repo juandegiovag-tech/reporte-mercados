@@ -35,6 +35,7 @@ Autor: Claude para Juan Degiovanangelo
 
 import sys
 import re
+import time
 import datetime as dt
 from pathlib import Path
 
@@ -203,23 +204,31 @@ def analizar_ticker(symbol):
         return {"error": str(e)}
 
 
-def obtener_cripto(coingecko_id):
-    try:
-        url = f"https://api.coingecko.com/api/v3/coins/{coingecko_id}"
-        params = {"localization": "false", "tickers": "false",
-                  "community_data": "false", "developer_data": "false"}
-        r = requests.get(url, params=params, headers=HEADERS, timeout=TIMEOUT)
-        r.raise_for_status()
-        market = r.json()["market_data"]
-        return {
-            "precio": market["current_price"]["usd"],
-            "cambio_24h": market["price_change_percentage_24h"],
-            "cambio_7d": market["price_change_percentage_7d"],
-            "cambio_30d": market["price_change_percentage_30d"],
-            "ath_dist_pct": market["ath_change_percentage"]["usd"],
-        }
-    except Exception as e:
-        return {"error": str(e)}
+def obtener_cripto(coingecko_id, reintentos=3):
+    """CoinGecko con reintentos ante 429 (rate limit) usando backoff."""
+    url = f"https://api.coingecko.com/api/v3/coins/{coingecko_id}"
+    params = {"localization": "false", "tickers": "false",
+              "community_data": "false", "developer_data": "false"}
+    for intento in range(reintentos):
+        try:
+            r = requests.get(url, params=params, headers=HEADERS, timeout=TIMEOUT)
+            if r.status_code == 429:  # demasiadas requests: esperar y reintentar
+                time.sleep(15 * (intento + 1))
+                continue
+            r.raise_for_status()
+            market = r.json()["market_data"]
+            return {
+                "precio": market["current_price"]["usd"],
+                "cambio_24h": market["price_change_percentage_24h"],
+                "cambio_7d": market["price_change_percentage_7d"],
+                "cambio_30d": market["price_change_percentage_30d"],
+                "ath_dist_pct": market["ath_change_percentage"]["usd"],
+            }
+        except Exception as e:
+            if intento == reintentos - 1:
+                return {"error": str(e)}
+            time.sleep(5)
+    return {"error": "429 rate limit"}
 
 
 # ============================================================
@@ -466,8 +475,10 @@ def bloque_noticias(noticias):
 def generar_html():
     meses = ["", "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
              "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+    dias = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
     ahora = dt.datetime.now()
-    hoy = f"{ahora.day} de {meses[ahora.month]} de {ahora.year} - {ahora:%H:%M} hs"
+    hoy = (f"{dias[ahora.weekday()]} {ahora.day} de {meses[ahora.month]} "
+           f"de {ahora.year} - {ahora:%H:%M} hs (ARG)")
 
     print("[1/7] Cripto...")
     cripto = [(sym, name, obtener_cripto(cgid)) for cgid, sym, name in CRYPTOS]
@@ -559,8 +570,8 @@ h2{{font-size:18px;margin:24px 0 12px;}} h3{{font-size:15px;margin:20px 0 10px;c
 </style></head><body>
 
 <div class="header">
-  <h1>📊 Reporte Diario de Mercados</h1>
-  <div class="date">{hoy}</div>
+  <h1>📊 Reporte de Mercados</h1>
+  <div class="date">{hoy} · Se actualiza cada hora automáticamente</div>
   <div class="tc">{subhdr}</div>
 </div>
 
@@ -596,7 +607,7 @@ h2{{font-size:18px;margin:24px 0 12px;}} h3{{font-size:15px;margin:20px 0 10px;c
 
 <div class="disclaimer">
   <strong>⚠️ Aviso:</strong> reporte informativo automatizado. No constituye asesoramiento
-  financiero. Verificá siempre en tu plataforma antes de operar.
+  financiero. Verificá siempre en tu plataforma (Quantfury, Cocos, Binance) antes de operar.
 </div>
 <div class="footer">Reporte generado {hoy} · Fuentes: CoinGecko, Yahoo Finance,
   BCR (Cámara Arbitral), Bolsa de Cereales, RSS de noticias.</div>
