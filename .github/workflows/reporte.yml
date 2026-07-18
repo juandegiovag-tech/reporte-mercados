@@ -2,7 +2,9 @@ name: Reporte de mercados (cada hora)
 
 on:
   schedule:
-    - cron: '0 * * * *'   # cada hora en punto (UTC)
+    # Cada hora en punto (UTC). GitHub puede demorar los runs programados
+    # en horarios de mucha carga; no esperes puntualidad al segundo.
+    - cron: '0 * * * *'
   workflow_dispatch:        # permite ejecutarlo a mano desde la pestaña Actions
 
 permissions:
@@ -12,32 +14,58 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  # NO cancelar deploys en curso: cortar un deploy-pages a mitad puede dejar
+  # el sitio publicado en un estado inconsistente. Los runs que se encolen
+  # mientras hay uno corriendo se descartan salvo el último.
+  cancel-in-progress: false
 
 jobs:
   generar-y-publicar:
     runs-on: ubuntu-latest
+    # Techo de seguridad: el script consulta ~25 fuentes externas con timeout
+    # de 25s cada una. Si varios sitios argentinos cuelgan a la vez, esto evita
+    # que un run zombie se coma los minutos de la cuenta.
+    timeout-minutes: 20
+
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+
     env:
       TZ: America/Argentina/Buenos_Aires   # fecha/hora del reporte en horario argentino
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: 'pip'                     # ahorra ~1 min por run instalando pandas/lxml
+
       - name: Instalar dependencias
         run: pip install -r requirements.txt
+
       - name: Generar reporte
         run: python generar_reporte.py
+
+      - name: Verificar que el reporte se generó
+        # Si una fuente falla el script sigue igual (muestra "s/c"), pero si el
+        # archivo no existe o quedó vacío es mejor cortar acá que publicar una
+        # página rota encima de la anterior, que sí funcionaba.
+        run: |
+          test -s reporte_diario.html || { echo "::error::reporte_diario.html vacío o inexistente"; exit 1; }
+          echo "Tamaño: $(wc -c < reporte_diario.html) bytes"
+
       - name: Preparar página
         run: |
           mkdir -p _site
           cp reporte_diario.html _site/index.html
+
       - uses: actions/configure-pages@v5
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+
       - id: deployment
         uses: actions/deploy-pages@v4
